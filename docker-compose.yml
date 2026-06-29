@@ -1,0 +1,86 @@
+services:
+
+  # ===== MySQL для gym-crm =====
+  mysql:
+    image: mysql:8.0
+    container_name: gym-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: gym_crm          # БД створиться автоматично
+      MYSQL_USER: gymuser
+      MYSQL_PASSWORD: gympass
+    ports:
+      - "3307:3306"                    # прокидаємо назовні (для дебагу через DBeaver)
+    volumes:
+      - mysql-data:/var/lib/mysql      # дані переживають перезапуск контейнера
+    networks:
+      - gym-network
+    healthcheck:                        # перевірка, що MySQL ГОТОВА приймати з'єднання
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpass"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===== Eureka Server =====
+  eureka-server:
+    build:
+      context: ./eureka-server          # де лежить Dockerfile
+    container_name: eureka-server
+    ports:
+      - "8761:8761"
+    networks:
+      - gym-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8761/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===== Trainer Workload Service =====
+  trainer-workload-service:
+    build:
+      context: ./trainer-workload-service
+    container_name: trainer-workload-service
+    ports:
+      - "8081:8081"
+    environment:
+      # Eureka по ІМЕНІ сервісу, не localhost!
+      EUREKA_URI: http://eureka-server:8761/eureka/
+      # JWT secret - той самий, що в gym-crm
+      JWT_SECRET: a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8
+    depends_on:
+      eureka-server:
+        condition: service_healthy      # стартує ПІСЛЯ того як Eureka здорова
+    networks:
+      - gym-network
+
+  # ===== Gym CRM (моноліт) =====
+  gym-crm:
+    build:
+      context: ./GymCRM          
+    container_name: gym-crm
+    ports:
+      - "8080:8080"
+    environment:
+      EUREKA_URI: http://eureka-server:8761/eureka/
+      JWT_SECRET: a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8
+      # БД по ІМЕНІ сервісу mysql
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/gym_crm
+      SPRING_DATASOURCE_USERNAME: gymuser
+      SPRING_DATASOURCE_PASSWORD: gympass
+    depends_on:
+      mysql:
+        condition: service_healthy      # чекає поки MySQL готова
+      eureka-server:
+        condition: service_healthy
+    networks:
+      - gym-network
+
+# Спільна мережа для всіх контейнерів
+networks:
+  gym-network:
+    driver: bridge
+
+# Volume для збереження даних MySQL
+volumes:
+  mysql-data:

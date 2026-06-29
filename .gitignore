@@ -1,0 +1,11 @@
+**/target/
+
+*.log
+
+.idea/
+*.iml
+
+.DS_Store
+Thumbs.db
+
+mysql-data/
