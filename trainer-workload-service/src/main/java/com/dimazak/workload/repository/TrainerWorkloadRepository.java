@@ -13,4 +13,6 @@ public interface TrainerWorkloadRepository
             String username, int year, int month);
 
     List<TrainerWorkload> findByUsername(String username);
+
+    List<TrainerWorkload> findByUsernameAndYear(String username, int year);
 }

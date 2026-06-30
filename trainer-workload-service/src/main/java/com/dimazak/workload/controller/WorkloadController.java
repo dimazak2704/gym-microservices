@@ -32,9 +32,13 @@ public class WorkloadController {
 
     @GetMapping("/{username}")
     @Operation(summary = "Get trainer workload summary",
-            description = "Returns monthly training hours grouped by year and month")
-    public ResponseEntity<TrainerSummaryResponse> getSummary(@PathVariable String username) {
-        log.info("Received summary request for trainer: '{}'", username);
-        return ResponseEntity.ok(workloadService.getSummary(username));
+            description = "Returns monthly training hours. Optionally filter by year and month.")
+    public ResponseEntity<TrainerSummaryResponse> getSummary(
+            @PathVariable String username,
+            @RequestParam(required = false) Integer year,
+            @RequestParam(required = false) Integer month) {
+        log.info("Received summary request for trainer: '{}', year={}, month={}",
+                username, year, month);
+        return ResponseEntity.ok(workloadService.getSummary(username, year, month));
     }
 }

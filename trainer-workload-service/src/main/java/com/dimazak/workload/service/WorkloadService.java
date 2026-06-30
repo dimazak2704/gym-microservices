@@ -7,5 +7,5 @@ public interface WorkloadService {
 
     void processWorkload(WorkloadRequest request);
 
-    TrainerSummaryResponse getSummary(String username);
+    TrainerSummaryResponse getSummary(String username, Integer year, Integer month);
 }

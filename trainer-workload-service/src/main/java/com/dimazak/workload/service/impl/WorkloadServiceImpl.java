@@ -103,9 +103,22 @@ public class WorkloadServiceImpl implements WorkloadService {
 
     @Override
     @Transactional(readOnly = true)
-    public TrainerSummaryResponse getSummary(String username) {
-        log.info("Fetching workload summary for trainer: '{}'", username);
-        List<TrainerWorkload> rows = repository.findByUsername(username);
+    public TrainerSummaryResponse getSummary(String username, Integer year, Integer month) {
+        log.info("Fetching workload summary for trainer: '{}', year={}, month={}",
+                username, year, month);
+
+        List<TrainerWorkload> rows;
+
+        if (year != null && month != null) {
+            rows = repository.findByUsernameAndYearAndMonth(username, year, month)
+                    .map(List::of)
+                    .orElse(List.of());
+        } else if (year != null) {
+            rows = repository.findByUsernameAndYear(username, year);
+        } else {
+            rows = repository.findByUsername(username);
+        }
+
         return mapper.toResponse(username, rows);
     }
 }

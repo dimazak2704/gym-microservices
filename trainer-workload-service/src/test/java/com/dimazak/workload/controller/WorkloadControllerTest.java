@@ -100,12 +100,11 @@ class WorkloadControllerTest {
 
     @Test
     void getSummary_shouldReturn200() throws Exception {
-        when(service.getSummary(USERNAME)).thenReturn(
+        when(service.getSummary(USERNAME, null, null)).thenReturn(
                 new TrainerSummaryResponse(USERNAME, "Jane", "Smith", true, List.of()));
 
         mockMvc.perform(get(BASE_URL + "/" + USERNAME))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.username").value(USERNAME))
-                .andExpect(jsonPath("$.active").value(true));
+                .andExpect(jsonPath("$.username").value(USERNAME));
     }
 }

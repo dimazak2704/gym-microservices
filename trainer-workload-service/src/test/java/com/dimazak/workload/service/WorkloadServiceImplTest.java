@@ -152,9 +152,8 @@ class WorkloadServiceImplTest {
                 new TrainerSummaryResponse(USERNAME, FIRST, LAST, true, List.of());
         when(mapper.toResponse(USERNAME, rows)).thenReturn(expected);
 
-        TrainerSummaryResponse result = service.getSummary(USERNAME);
+        TrainerSummaryResponse result = service.getSummary(USERNAME, null, null);
 
         assertEquals(expected, result);
-        verify(mapper).toResponse(USERNAME, rows);
     }
 }

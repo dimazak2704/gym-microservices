@@ -118,6 +118,7 @@ public class TrainingServiceImpl implements TrainingService {
 
         log.info("Training created with id: {}", training.getId());
 
+        gymMetrics.incrementTrainingCreated();
         workloadGateway.notifyTrainingAdded(training);
 
         return training;
