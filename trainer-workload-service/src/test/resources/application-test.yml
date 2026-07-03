@@ -7,6 +7,11 @@ spring:
   jpa:
     hibernate:
       ddl-auto: create-drop
+  jms:
+    listener:
+      auto-startup: false
+  activemq:
+    broker-url: vm://localhost?broker.persistent=false
 
 eureka:
   client:

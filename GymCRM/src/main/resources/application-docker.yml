@@ -1,0 +1,14 @@
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://mysql:3306/gym_crm}
+    username: ${SPRING_DATASOURCE_USERNAME:gymuser}
+    password: ${SPRING_DATASOURCE_PASSWORD:gympass}
+  activemq:
+    broker-url: ${ACTIVEMQ_BROKER_URL:tcp://activemq:61616}
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URI:http://eureka-server:8761/eureka/}
+  instance:
+    prefer-ip-address: true

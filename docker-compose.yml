@@ -21,6 +21,26 @@ services:
       timeout: 5s
       retries: 5
 
+  # ===== ActiveMQ (message broker) =====
+  activemq:
+    image: apache/activemq-classic:5.18.3
+    container_name: activemq
+    ports:
+      - "61616:61616"
+      - "8161:8161"
+    environment:
+      ACTIVEMQ_CONNECTION_USER: admin
+      ACTIVEMQ_CONNECTION_PASSWORD: admin
+    volumes:
+      - activemq-data:/opt/apache-activemq/data
+    networks:
+      - gym-network
+    healthcheck:
+      test: [ "CMD-SHELL", "/opt/apache-activemq/bin/activemq status" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # ===== Eureka Server =====
   eureka-server:
     build:
@@ -44,34 +64,39 @@ services:
     ports:
       - "8081:8081"
     environment:
-      # Eureka по ІМЕНІ сервісу, не localhost!
       EUREKA_URI: http://eureka-server:8761/eureka/
-      # JWT secret - той самий, що в gym-crm
       JWT_SECRET: a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8
+      SPRING_PROFILES_ACTIVE: docker
+      ACTIVEMQ_BROKER_URL: tcp://activemq:61616
     depends_on:
       eureka-server:
-        condition: service_healthy      # стартує ПІСЛЯ того як Eureka здорова
+        condition: service_healthy
+      activemq:
+        condition: service_healthy
     networks:
       - gym-network
 
   # ===== Gym CRM (моноліт) =====
   gym-crm:
     build:
-      context: ./GymCRM          
+      context: ./GymCRM
     container_name: gym-crm
     ports:
       - "8080:8080"
     environment:
       EUREKA_URI: http://eureka-server:8761/eureka/
       JWT_SECRET: a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8
-      # БД по ІМЕНІ сервісу mysql
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/gym_crm
       SPRING_DATASOURCE_USERNAME: gymuser
       SPRING_DATASOURCE_PASSWORD: gympass
+      SPRING_PROFILES_ACTIVE: docker
+      ACTIVEMQ_BROKER_URL: tcp://activemq:61616
     depends_on:
       mysql:
-        condition: service_healthy      # чекає поки MySQL готова
+        condition: service_healthy
       eureka-server:
+        condition: service_healthy
+      activemq:
         condition: service_healthy
     networks:
       - gym-network
@@ -84,3 +109,4 @@ networks:
 # Volume для збереження даних MySQL
 volumes:
   mysql-data:
+  activemq-data:

@@ -6,13 +6,17 @@ import com.dimazak.gym.model.*;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.jms.core.JmsTemplate;
+import org.springframework.jms.core.MessagePostProcessor;
 
 import java.time.LocalDate;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -24,9 +28,14 @@ class WorkloadGatewayTest {
     private static final LocalDate DATE = LocalDate.of(2024, 4, 1);
     private static final int DURATION = 60;
 
-    @Mock private WorkloadCircuitBreakerClient cbClient;
+    @Mock
+    private JmsTemplate jmsTemplate;
 
-    @InjectMocks private WorkloadGateway gateway;
+    @InjectMocks
+    private WorkloadGateway gateway;
+
+    @Captor
+    private ArgumentCaptor<Object> payloadCaptor;
 
     private Training buildTraining() {
         User trainerUser = new User(2L, FIRST, LAST, TRAINER_USERNAME, "p", true, Role.TRAINER);
@@ -38,13 +47,15 @@ class WorkloadGatewayTest {
     }
 
     @Test
-    void notifyTrainingAdded_shouldSendAddRequest() {
+    void notifyTrainingAdded_shouldSendToQueueWithAddAction() {
         gateway.notifyTrainingAdded(buildTraining());
 
-        ArgumentCaptor<WorkloadRequest> captor = ArgumentCaptor.forClass(WorkloadRequest.class);
-        verify(cbClient).send(captor.capture());
+        verify(jmsTemplate).convertAndSend(
+                eq(JmsQueues.TRAINING_QUEUE),
+                payloadCaptor.capture(),
+                any(MessagePostProcessor.class));
 
-        WorkloadRequest req = captor.getValue();
+        WorkloadRequest req = (WorkloadRequest) payloadCaptor.getValue();
         assertEquals(WorkloadActionType.ADD, req.actionType());
         assertEquals(TRAINER_USERNAME, req.trainerUsername());
         assertEquals(FIRST, req.trainerFirstName());
@@ -55,25 +66,42 @@ class WorkloadGatewayTest {
     }
 
     @Test
-    void notifyTrainingDeleted_shouldSendDeleteRequest() {
+    void notifyTrainingDeleted_shouldSendToQueueWithDeleteAction() {
         gateway.notifyTrainingDeleted(buildTraining());
 
-        ArgumentCaptor<WorkloadRequest> captor = ArgumentCaptor.forClass(WorkloadRequest.class);
-        verify(cbClient).send(captor.capture());
+        verify(jmsTemplate).convertAndSend(
+                eq(JmsQueues.TRAINING_QUEUE),
+                payloadCaptor.capture(),
+                any(MessagePostProcessor.class));
 
-        assertEquals(WorkloadActionType.DELETE, captor.getValue().actionType());
-        assertEquals(TRAINER_USERNAME, captor.getValue().trainerUsername());
+        WorkloadRequest req = (WorkloadRequest) payloadCaptor.getValue();
+        assertEquals(WorkloadActionType.DELETE, req.actionType());
+        assertEquals(TRAINER_USERNAME, req.trainerUsername());
     }
 
     @Test
-    void notify_shouldMapInactiveTrainer() {
+    void notifyTrainingAdded_shouldMapInactiveTrainer() {
         Training t = buildTraining();
         t.getTrainer().getUser().setActive(false);
 
         gateway.notifyTrainingAdded(t);
 
-        ArgumentCaptor<WorkloadRequest> captor = ArgumentCaptor.forClass(WorkloadRequest.class);
-        verify(cbClient).send(captor.capture());
-        assertFalse(captor.getValue().isActive());
+        verify(jmsTemplate).convertAndSend(
+                eq(JmsQueues.TRAINING_QUEUE),
+                payloadCaptor.capture(),
+                any(MessagePostProcessor.class));
+
+        WorkloadRequest req = (WorkloadRequest) payloadCaptor.getValue();
+        assertFalse(req.isActive());
+    }
+
+    @Test
+    void notifyTrainingAdded_shouldSendToCorrectQueue() {
+        gateway.notifyTrainingAdded(buildTraining());
+
+        verify(jmsTemplate).convertAndSend(
+                eq("training.queue"),
+                any(),
+                any(MessagePostProcessor.class));
     }
 }

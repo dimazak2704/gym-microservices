@@ -19,6 +19,11 @@ spring:
       hibernate:
         format_sql: true
 
+  activemq:
+    broker-url: ${ACTIVEMQ_BROKER_URL:tcp://localhost:61616}?jms.redeliveryPolicy.maximumRedeliveries=3&jms.redeliveryPolicy.initialRedeliveryDelay=1000&jms.redeliveryPolicy.redeliveryDelay=2000&jms.redeliveryPolicy.useExponentialBackOff=true
+    user: ${ACTIVEMQ_USER:admin}
+    password: ${ACTIVEMQ_PASSWORD:admin}
+
 eureka:
   client:
     service-url:
