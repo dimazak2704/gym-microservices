@@ -1,19 +1,20 @@
 package com.dimazak.workload.service.impl;
 
+import com.dimazak.workload.document.MonthSummary;
+import com.dimazak.workload.document.TrainerWorkloadDocument;
+import com.dimazak.workload.document.YearSummary;
 import com.dimazak.workload.dto.ActionType;
 import com.dimazak.workload.dto.TrainerSummaryResponse;
 import com.dimazak.workload.dto.WorkloadRequest;
-import com.dimazak.workload.entity.TrainerWorkload;
 import com.dimazak.workload.mapper.WorkloadMapper;
 import com.dimazak.workload.metrics.WorkloadMetrics;
 import com.dimazak.workload.repository.TrainerWorkloadRepository;
 import com.dimazak.workload.service.WorkloadService;
-import io.micrometer.core.annotation.Timed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -27,9 +28,6 @@ public class WorkloadServiceImpl implements WorkloadService {
     private final WorkloadMetrics workloadMetrics;
 
     @Override
-    @Timed(value = "workload.processing.time",
-            description = "Time taken to process a workload request")
-    @Transactional
     public void processWorkload(WorkloadRequest request) {
         log.info("Processing workload: trainer='{}', date={}, duration={}, action={}",
                 request.trainerUsername(), request.trainingDate(),
@@ -38,8 +36,8 @@ public class WorkloadServiceImpl implements WorkloadService {
         int year = request.trainingDate().getYear();
         int month = request.trainingDate().getMonthValue();
 
-        Optional<TrainerWorkload> existing = repository
-                .findByUsernameAndYearAndMonth(request.trainerUsername(), year, month);
+        Optional<TrainerWorkloadDocument> existing =
+                repository.findByUsername(request.trainerUsername());
 
         if (request.actionType() == ActionType.ADD) {
             handleAdd(request, year, month, existing);
@@ -51,74 +49,148 @@ public class WorkloadServiceImpl implements WorkloadService {
     }
 
     private void handleAdd(WorkloadRequest request, int year, int month,
-                           Optional<TrainerWorkload> existing) {
-        if (existing.isPresent()) {
-            TrainerWorkload workload = existing.get();
-            int updated = workload.getTotalDuration() + request.trainingDuration();
-            workload.setTotalDuration(updated);
-            workload.setFirstName(request.trainerFirstName());
-            workload.setLastName(request.trainerLastName());
-            workload.setActive(request.isActive());
-            repository.save(workload);
-            log.info("Updated workload for '{}' {}-{}: total now {} min",
-                    request.trainerUsername(), year, month, updated);
-        } else {
-            TrainerWorkload workload = TrainerWorkload.builder()
+                           Optional<TrainerWorkloadDocument> existing) {
+        TrainerWorkloadDocument doc = existing.orElseGet(() -> {
+            log.debug("No document found for '{}'. Creating new one.",
+                    request.trainerUsername());
+            return TrainerWorkloadDocument.builder()
                     .username(request.trainerUsername())
-                    .firstName(request.trainerFirstName())
-                    .lastName(request.trainerLastName())
-                    .active(request.isActive())
-                    .year(year)
-                    .month(month)
-                    .totalDuration(request.trainingDuration())
+                    .years(new ArrayList<>())
                     .build();
-            repository.save(workload);
-            log.info("Created new workload for '{}' {}-{}: {} min",
-                    request.trainerUsername(), year, month, request.trainingDuration());
-        }
+        });
+
+        doc.setFirstName(request.trainerFirstName());
+        doc.setLastName(request.trainerLastName());
+        doc.setActive(request.isActive());
+
+        MonthSummary monthSummary = findOrCreateMonth(doc, year, month);
+
+        int updated = monthSummary.getTotalDuration() + request.trainingDuration();
+        monthSummary.setTotalDuration(updated);
+
+        repository.save(doc);
+
+        log.info("ADD processed for '{}' {}-{}: total duration now {} min",
+                request.trainerUsername(), year, month, updated);
     }
 
     private void handleDelete(WorkloadRequest request, int year, int month,
-                              Optional<TrainerWorkload> existing) {
+                              Optional<TrainerWorkloadDocument> existing) {
         if (existing.isEmpty()) {
-            log.warn("DELETE requested for '{}' {}-{}, but no record found. Ignoring.",
+            log.warn("DELETE requested for '{}' {}-{}, but no document found. Ignoring.",
                     request.trainerUsername(), year, month);
             return;
         }
 
-        TrainerWorkload workload = existing.get();
-        int updated = workload.getTotalDuration() - request.trainingDuration();
+        TrainerWorkloadDocument doc = existing.get();
+
+        Optional<MonthSummary> monthOpt = findMonth(doc, year, month);
+        if (monthOpt.isEmpty()) {
+            log.warn("DELETE requested for '{}' {}-{}, but no matching month found. Ignoring.",
+                    request.trainerUsername(), year, month);
+            return;
+        }
+
+        MonthSummary monthSummary = monthOpt.get();
+        int updated = monthSummary.getTotalDuration() - request.trainingDuration();
 
         if (updated <= 0) {
-            repository.delete(workload);
-            log.info("Removed workload record for '{}' {}-{} (reached zero)",
+            removeMonth(doc, year, month);
+            log.info("Removed month record for '{}' {}-{} (reached zero)",
                     request.trainerUsername(), year, month);
         } else {
-            workload.setTotalDuration(updated);
-            repository.save(workload);
+            monthSummary.setTotalDuration(updated);
             log.info("Decreased workload for '{}' {}-{}: total now {} min",
                     request.trainerUsername(), year, month, updated);
         }
+
+        repository.save(doc);
+    }
+
+    private MonthSummary findOrCreateMonth(TrainerWorkloadDocument doc, int year, int month) {
+        YearSummary yearSummary = doc.getYears().stream()
+                .filter(y -> y.getYear() == year)
+                .findFirst()
+                .orElseGet(() -> {
+                    log.debug("Creating new year element: {}", year);
+                    YearSummary newYear = YearSummary.builder()
+                            .year(year)
+                            .months(new ArrayList<>())
+                            .build();
+                    doc.getYears().add(newYear);
+                    return newYear;
+                });
+
+        return yearSummary.getMonths().stream()
+                .filter(m -> m.getMonth() == month)
+                .findFirst()
+                .orElseGet(() -> {
+                    log.debug("Creating new month element: {}-{}", year, month);
+                    MonthSummary newMonth = MonthSummary.builder()
+                            .month(month)
+                            .totalDuration(0)
+                            .build();
+                    yearSummary.getMonths().add(newMonth);
+                    return newMonth;
+                });
+    }
+
+    private Optional<MonthSummary> findMonth(TrainerWorkloadDocument doc, int year, int month) {
+        return doc.getYears().stream()
+                .filter(y -> y.getYear() == year)
+                .flatMap(y -> y.getMonths().stream())
+                .filter(m -> m.getMonth() == month)
+                .findFirst();
+    }
+
+    private void removeMonth(TrainerWorkloadDocument doc, int year, int month) {
+        doc.getYears().stream()
+                .filter(y -> y.getYear() == year)
+                .findFirst()
+                .ifPresent(y -> {
+                    y.getMonths().removeIf(m -> m.getMonth() == month);
+                    if (y.getMonths().isEmpty()) {
+                        doc.getYears().removeIf(yr -> yr.getYear() == year);
+                    }
+                });
     }
 
     @Override
-    @Transactional(readOnly = true)
     public TrainerSummaryResponse getSummary(String username, Integer year, Integer month) {
         log.info("Fetching workload summary for trainer: '{}', year={}, month={}",
                 username, year, month);
 
-        List<TrainerWorkload> rows;
+        TrainerWorkloadDocument document = repository.findByUsername(username).orElse(null);
+        return mapper.toResponse(username, filter(document, year, month));
+    }
 
-        if (year != null && month != null) {
-            rows = repository.findByUsernameAndYearAndMonth(username, year, month)
-                    .map(List::of)
-                    .orElse(List.of());
-        } else if (year != null) {
-            rows = repository.findByUsernameAndYear(username, year);
-        } else {
-            rows = repository.findByUsername(username);
+    private TrainerWorkloadDocument filter(TrainerWorkloadDocument document, Integer year, Integer month) {
+        if (document == null || year == null) {
+            return document;
         }
 
-        return mapper.toResponse(username, rows);
+        List<YearSummary> years = document.getYears().stream()
+                .filter(yearSummary -> yearSummary.getYear() == year)
+                .map(yearSummary -> YearSummary.builder()
+                        .year(yearSummary.getYear())
+                        .months(yearSummary.getMonths().stream()
+                                .filter(monthSummary -> month == null
+                                        || monthSummary.getMonth() == month)
+                                .map(monthSummary -> MonthSummary.builder()
+                                        .month(monthSummary.getMonth())
+                                        .totalDuration(monthSummary.getTotalDuration())
+                                        .build())
+                                .toList())
+                        .build())
+                .toList();
+
+        return TrainerWorkloadDocument.builder()
+                .id(document.getId())
+                .username(document.getUsername())
+                .firstName(document.getFirstName())
+                .lastName(document.getLastName())
+                .active(document.isActive())
+                .years(years)
+                .build();
     }
 }

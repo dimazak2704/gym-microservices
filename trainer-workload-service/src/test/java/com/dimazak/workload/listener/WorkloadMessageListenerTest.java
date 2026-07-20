@@ -82,6 +82,10 @@ class WorkloadMessageListenerTest {
     @Test
     void receive_shouldHandleNullTransactionId() {
         WorkloadRequest request = validRequest(ActionType.DELETE);
+        doAnswer(invocation -> {
+            assertNotNull(MDC.get("transactionId"));
+            return null;
+        }).when(workloadService).processWorkload(request);
 
         listener.receive(request, null);
 
