@@ -1,9 +1,11 @@
 package com.dimazak.workload.service;
 
+import com.dimazak.workload.document.MonthSummary;
+import com.dimazak.workload.document.TrainerWorkloadDocument;
+import com.dimazak.workload.document.YearSummary;
 import com.dimazak.workload.dto.ActionType;
 import com.dimazak.workload.dto.TrainerSummaryResponse;
 import com.dimazak.workload.dto.WorkloadRequest;
-import com.dimazak.workload.entity.TrainerWorkload;
 import com.dimazak.workload.mapper.WorkloadMapper;
 import com.dimazak.workload.metrics.WorkloadMetrics;
 import com.dimazak.workload.repository.TrainerWorkloadRepository;
@@ -16,11 +18,12 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -44,101 +47,126 @@ class WorkloadServiceImplTest {
         return new WorkloadRequest(USERNAME, FIRST, LAST, true, DATE, duration, action);
     }
 
-    private TrainerWorkload existing(int total) {
-        return TrainerWorkload.builder()
-                .id(1L).username(USERNAME).firstName(FIRST).lastName(LAST)
-                .active(true).year(YEAR).month(MONTH).totalDuration(total).build();
+    private TrainerWorkloadDocument docWith(int total) {
+        MonthSummary m = MonthSummary.builder().month(MONTH).totalDuration(total).build();
+        YearSummary y = YearSummary.builder().year(YEAR)
+                .months(new ArrayList<>(List.of(m))).build();
+        return TrainerWorkloadDocument.builder()
+                .id("1").username(USERNAME).firstName(FIRST).lastName(LAST)
+                .active(true).years(new ArrayList<>(List.of(y))).build();
     }
 
     // ==================== ADD ====================
 
     @Test
-    void processWorkload_add_shouldCreateNewWhenNoExisting() {
-        when(repository.findByUsernameAndYearAndMonth(USERNAME, YEAR, MONTH))
-                .thenReturn(Optional.empty());
+    void processWorkload_add_shouldCreateNewDocumentWhenNoneExists() {
+        when(repository.findByUsername(USERNAME)).thenReturn(Optional.empty());
 
         service.processWorkload(request(ActionType.ADD, DURATION));
 
-        ArgumentCaptor<TrainerWorkload> captor = ArgumentCaptor.forClass(TrainerWorkload.class);
+        ArgumentCaptor<TrainerWorkloadDocument> captor =
+                ArgumentCaptor.forClass(TrainerWorkloadDocument.class);
         verify(repository).save(captor.capture());
-        assertEquals(DURATION, captor.getValue().getTotalDuration());
-        assertEquals(USERNAME, captor.getValue().getUsername());
+
+        TrainerWorkloadDocument saved = captor.getValue();
+        assertEquals(USERNAME, saved.getUsername());
+        assertEquals(1, saved.getYears().size());
+        assertEquals(YEAR, saved.getYears().get(0).getYear());
+        assertEquals(DURATION, saved.getYears().get(0).getMonths().get(0).getTotalDuration());
         verify(metrics).incrementAdd();
     }
 
     @Test
-    void processWorkload_add_shouldAccumulateWhenExisting() {
-        TrainerWorkload existing = existing(120);
-        when(repository.findByUsernameAndYearAndMonth(USERNAME, YEAR, MONTH))
-                .thenReturn(Optional.of(existing));
+    void processWorkload_add_shouldAccumulateWhenMonthExists() {
+        TrainerWorkloadDocument doc = docWith(120);
+        when(repository.findByUsername(USERNAME)).thenReturn(Optional.of(doc));
 
         service.processWorkload(request(ActionType.ADD, 30));
 
-        assertEquals(150, existing.getTotalDuration());
-        verify(repository).save(existing);
+        assertEquals(150, doc.getYears().get(0).getMonths().get(0).getTotalDuration());
+        verify(repository).save(doc);
         verify(metrics).incrementAdd();
     }
 
     @Test
-    void processWorkload_add_shouldUpdateNameAndStatusWhenExisting() {
-        TrainerWorkload existing = existing(60);
-        existing.setActive(false);
-        when(repository.findByUsernameAndYearAndMonth(USERNAME, YEAR, MONTH))
-                .thenReturn(Optional.of(existing));
+    void processWorkload_add_shouldAddNewMonthToExistingYear() {
+        TrainerWorkloadDocument doc = docWith(60); // has month 4
+        WorkloadRequest mayRequest = new WorkloadRequest(
+                USERNAME, FIRST, LAST, true, LocalDate.of(2024, 5, 1), 45, ActionType.ADD);
+        when(repository.findByUsername(USERNAME)).thenReturn(Optional.of(doc));
+
+        service.processWorkload(mayRequest);
+
+        assertEquals(2, doc.getYears().get(0).getMonths().size());
+    }
+
+    @Test
+    void processWorkload_add_shouldUpdateTrainerInfo() {
+        TrainerWorkloadDocument doc = docWith(60);
+        doc.setActive(false);
+        when(repository.findByUsername(USERNAME)).thenReturn(Optional.of(doc));
 
         service.processWorkload(request(ActionType.ADD, 30));
 
-        assertTrue(existing.isActive());
-        assertEquals(FIRST, existing.getFirstName());
+        assertTrue(doc.isActive());
+        assertEquals(FIRST, doc.getFirstName());
     }
 
     // ==================== DELETE ====================
 
     @Test
     void processWorkload_delete_shouldDecreaseWhenEnough() {
-        TrainerWorkload existing = existing(120);
-        when(repository.findByUsernameAndYearAndMonth(USERNAME, YEAR, MONTH))
-                .thenReturn(Optional.of(existing));
+        TrainerWorkloadDocument doc = docWith(120);
+        when(repository.findByUsername(USERNAME)).thenReturn(Optional.of(doc));
 
         service.processWorkload(request(ActionType.DELETE, 30));
 
-        assertEquals(90, existing.getTotalDuration());
-        verify(repository).save(existing);
+        assertEquals(90, doc.getYears().get(0).getMonths().get(0).getTotalDuration());
+        verify(repository).save(doc);
         verify(metrics).incrementDelete();
     }
 
     @Test
-    void processWorkload_delete_shouldRemoveRowWhenReachesZero() {
-        TrainerWorkload existing = existing(30);
-        when(repository.findByUsernameAndYearAndMonth(USERNAME, YEAR, MONTH))
-                .thenReturn(Optional.of(existing));
+    void processWorkload_delete_shouldRemoveMonthWhenReachesZero() {
+        TrainerWorkloadDocument doc = docWith(30);
+        when(repository.findByUsername(USERNAME)).thenReturn(Optional.of(doc));
 
         service.processWorkload(request(ActionType.DELETE, 30));
 
-        verify(repository).delete(existing);
-        verify(repository, never()).save(any());
+        assertTrue(doc.getYears().isEmpty());
+        verify(repository).save(doc);
     }
 
     @Test
-    void processWorkload_delete_shouldRemoveRowWhenGoesNegative() {
-        TrainerWorkload existing = existing(20);
-        when(repository.findByUsernameAndYearAndMonth(USERNAME, YEAR, MONTH))
-                .thenReturn(Optional.of(existing));
+    void processWorkload_delete_shouldRemoveMonthWhenGoesNegative() {
+        TrainerWorkloadDocument doc = docWith(20);
+        when(repository.findByUsername(USERNAME)).thenReturn(Optional.of(doc));
 
         service.processWorkload(request(ActionType.DELETE, 50));
 
-        verify(repository).delete(existing);
+        assertTrue(doc.getYears().isEmpty());
     }
 
     @Test
-    void processWorkload_delete_shouldIgnoreWhenNoRecord() {
-        when(repository.findByUsernameAndYearAndMonth(USERNAME, YEAR, MONTH))
-                .thenReturn(Optional.empty());
+    void processWorkload_delete_shouldIgnoreWhenNoDocument() {
+        when(repository.findByUsername(USERNAME)).thenReturn(Optional.empty());
 
         service.processWorkload(request(ActionType.DELETE, 30));
 
         verify(repository, never()).save(any());
-        verify(repository, never()).delete(any());
+        verify(metrics).incrementDelete();
+    }
+
+    @Test
+    void processWorkload_delete_shouldIgnoreWhenNoMatchingMonth() {
+        TrainerWorkloadDocument doc = docWith(60); // month 4
+        WorkloadRequest mayDelete = new WorkloadRequest(
+                USERNAME, FIRST, LAST, true, LocalDate.of(2024, 5, 1), 30, ActionType.DELETE);
+        when(repository.findByUsername(USERNAME)).thenReturn(Optional.of(doc));
+
+        service.processWorkload(mayDelete);
+
+        verify(repository, never()).save(any());
         verify(metrics).incrementDelete();
     }
 
@@ -146,14 +174,47 @@ class WorkloadServiceImplTest {
 
     @Test
     void getSummary_shouldDelegateToMapper() {
-        List<TrainerWorkload> rows = List.of(existing(60));
-        when(repository.findByUsername(USERNAME)).thenReturn(rows);
+        TrainerWorkloadDocument doc = docWith(60);
+        when(repository.findByUsername(USERNAME)).thenReturn(Optional.of(doc));
         TrainerSummaryResponse expected =
                 new TrainerSummaryResponse(USERNAME, FIRST, LAST, true, List.of());
-        when(mapper.toResponse(USERNAME, rows)).thenReturn(expected);
+        when(mapper.toResponse(USERNAME, doc)).thenReturn(expected);
 
         TrainerSummaryResponse result = service.getSummary(USERNAME, null, null);
 
         assertEquals(expected, result);
+    }
+
+    @Test
+    void getSummary_shouldReturnEmptyWhenNoDocument() {
+        when(repository.findByUsername(USERNAME)).thenReturn(Optional.empty());
+        TrainerSummaryResponse expected =
+                new TrainerSummaryResponse(USERNAME, null, null, false, List.of());
+        when(mapper.toResponse(USERNAME, null)).thenReturn(expected);
+
+        TrainerSummaryResponse result = service.getSummary(USERNAME, null, null);
+
+        assertEquals(expected, result);
+    }
+
+    @Test
+    void getSummary_shouldFilterWithoutMutatingStoredDocument() {
+        TrainerWorkloadDocument doc = docWith(60);
+        doc.getYears().add(YearSummary.builder()
+                .year(2025)
+                .months(new ArrayList<>(List.of(MonthSummary.builder()
+                        .month(1).totalDuration(30).build())))
+                .build());
+        when(repository.findByUsername(USERNAME)).thenReturn(Optional.of(doc));
+
+        service.getSummary(USERNAME, YEAR, MONTH);
+
+        ArgumentCaptor<TrainerWorkloadDocument> captor =
+                ArgumentCaptor.forClass(TrainerWorkloadDocument.class);
+        verify(mapper).toResponse(eq(USERNAME), captor.capture());
+        assertEquals(1, captor.getValue().getYears().size());
+        assertEquals(YEAR, captor.getValue().getYears().get(0).getYear());
+        assertEquals(2, doc.getYears().size());
+        assertEquals(1, doc.getYears().get(0).getMonths().size());
     }
 }

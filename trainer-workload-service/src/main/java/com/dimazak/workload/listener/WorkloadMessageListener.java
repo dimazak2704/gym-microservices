@@ -12,6 +12,8 @@ import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Component;
 import org.springframework.validation.annotation.Validated;
 
+import java.util.UUID;
+
 @Slf4j
 @Component
 @Validated
@@ -26,12 +28,13 @@ public class WorkloadMessageListener {
     @JmsListener(destination = TRAINING_QUEUE, concurrency = "3-10")
     public void receive(@Valid @Payload WorkloadRequest request,
                         @Header(name = TX_HEADER, required = false) String transactionId) {
-        if (transactionId != null) {
-            MDC.put(TX_HEADER, transactionId);
-        }
+        String effectiveTransactionId = transactionId == null || transactionId.isBlank()
+                ? UUID.randomUUID().toString()
+                : transactionId;
+        MDC.put(TX_HEADER, effectiveTransactionId);
         try {
             log.info("Received workload message: trainer='{}', action={}, txId={}",
-                    request.trainerUsername(), request.actionType(), transactionId);
+                    request.trainerUsername(), request.actionType(), effectiveTransactionId);
 
             workloadService.processWorkload(request);
 

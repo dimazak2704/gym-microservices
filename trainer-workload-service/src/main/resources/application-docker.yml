@@ -1,6 +1,8 @@
 spring:
   activemq:
     broker-url: ${ACTIVEMQ_BROKER_URL:tcp://activemq:61616}
+  mongodb:
+    uri: ${MONGODB_URI:mongodb://mongodb:27017/workloaddb}
 
 eureka:
   client:

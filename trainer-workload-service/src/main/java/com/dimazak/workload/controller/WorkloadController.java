@@ -7,12 +7,18 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
 
 @Slf4j
 @RestController
 @RequestMapping("/api/workload")
 @RequiredArgsConstructor
+@Validated
 @Tag(name = "Workload", description = "Trainer workload queries")
 public class WorkloadController {
 
@@ -22,9 +28,9 @@ public class WorkloadController {
     @Operation(summary = "Get trainer workload summary",
             description = "Returns monthly training hours. Optionally filter by year and month.")
     public ResponseEntity<TrainerSummaryResponse> getSummary(
-            @PathVariable String username,
-            @RequestParam(required = false) Integer year,
-            @RequestParam(required = false) Integer month) {
+            @PathVariable @NotBlank String username,
+            @RequestParam(required = false) @Min(1) Integer year,
+            @RequestParam(required = false) @Min(1) @Max(12) Integer month) {
         log.info("Received summary request for trainer: '{}', year={}, month={}",
                 username, year, month);
         return ResponseEntity.ok(workloadService.getSummary(username, year, month));

@@ -1,18 +1,16 @@
 package com.dimazak.workload.repository;
 
-import com.dimazak.workload.entity.TrainerWorkload;
-import org.springframework.data.jpa.repository.JpaRepository;
+import com.dimazak.workload.document.TrainerWorkloadDocument;
+import org.springframework.data.mongodb.repository.MongoRepository;
 
 import java.util.List;
 import java.util.Optional;
 
 public interface TrainerWorkloadRepository
-        extends JpaRepository<TrainerWorkload, Long> {
+        extends MongoRepository<TrainerWorkloadDocument, String> {
 
-    Optional<TrainerWorkload> findByUsernameAndYearAndMonth(
-            String username, int year, int month);
+    Optional<TrainerWorkloadDocument> findByUsername(String username);
 
-    List<TrainerWorkload> findByUsername(String username);
-
-    List<TrainerWorkload> findByUsernameAndYear(String username, int year);
+    List<TrainerWorkloadDocument> findByFirstNameAndLastName(
+            String firstName, String lastName);
 }

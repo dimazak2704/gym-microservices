@@ -6,17 +6,33 @@ services:
     container_name: gym-mysql
     environment:
       MYSQL_ROOT_PASSWORD: rootpass
-      MYSQL_DATABASE: gym_crm          # БД створиться автоматично
+      MYSQL_DATABASE: gym_crm
       MYSQL_USER: gymuser
       MYSQL_PASSWORD: gympass
     ports:
-      - "3307:3306"                    # прокидаємо назовні (для дебагу через DBeaver)
+      - "3307:3306"
     volumes:
-      - mysql-data:/var/lib/mysql      # дані переживають перезапуск контейнера
+      - mysql-data:/var/lib/mysql
     networks:
       - gym-network
-    healthcheck:                        # перевірка, що MySQL ГОТОВА приймати з'єднання
+    healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpass"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===== MongoDB trainer-workload-service =====
+  mongodb:
+    image: mongo:7.0
+    container_name: mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - gym-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -44,7 +60,7 @@ services:
   # ===== Eureka Server =====
   eureka-server:
     build:
-      context: ./eureka-server          # де лежить Dockerfile
+      context: ./eureka-server
     container_name: eureka-server
     ports:
       - "8761:8761"
@@ -68,10 +84,13 @@ services:
       JWT_SECRET: a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8
       SPRING_PROFILES_ACTIVE: docker
       ACTIVEMQ_BROKER_URL: tcp://activemq:61616
+      MONGODB_URI: mongodb://mongodb:27017/workloaddb
     depends_on:
       eureka-server:
         condition: service_healthy
       activemq:
+        condition: service_healthy
+      mongodb:
         condition: service_healthy
     networks:
       - gym-network
@@ -106,7 +125,8 @@ networks:
   gym-network:
     driver: bridge
 
-# Volume для збереження даних MySQL
+# Volume для збереження даних
 volumes:
   mysql-data:
   activemq-data:
+  mongo-data:
